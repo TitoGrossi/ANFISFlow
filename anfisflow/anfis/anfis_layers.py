@@ -3,8 +3,8 @@ This files defines the classes for all necessary layers of the ANFIS model
 '''
 
 import tensorflow as tf
-import numpy as np
 import itertools
+import numpy as np
 
 
 class FuzzyficationLayer(tf.keras.layers.Layer):
@@ -16,7 +16,10 @@ class FuzzyficationLayer(tf.keras.layers.Layer):
         self.num_inputs = num_inputs
         self.num_mf = num_mf
         self.output_dim = num_mf*num_inputs
-        super(FuzzyficationLayer, self).__init__(**kwargs)
+        super(FuzzyficationLayer, self).__init__(dynamic=True, **kwargs)
+
+    def compute_output_shape(self, input_dim):
+        return (None, 1, self.output_dim)
 
     def build(self, input_shape):
         '''
@@ -27,7 +30,7 @@ class FuzzyficationLayer(tf.keras.layers.Layer):
         super(FuzzyficationLayer, self).build(input_shape)
 
     def call(self, x):
-        output = []
+        '''output = []
         for k in range(len(x)):
             offset = 0
             o = []
@@ -36,41 +39,59 @@ class FuzzyficationLayer(tf.keras.layers.Layer):
                     o.append(self.membership_function(x[k][j], *self.parameters[offset + i]))
                 offset += self.num_mf
             output.append(o)
+        return output'''
+        output = []
+        unstack = tf.unstack(x)
+        for k in unstack:
+            offset = 0
+            o = []
+            for j in range(self.num_inputs):
+                for i in range(self.num_mf):
+                    o.append(self.membership_function(k[j], *self.parameters[offset + i]))
+                offset += self.num_mf
+            output.append(o)
         return output
 
+    def membership_function(self, x, *args):
+        print('\nFuzzyficationLayer subclasses must implement the membership_function method\n')
+        raise NotImplementedError
 
-class FuzzyficationLayer_gaussian(FuzzyficationLayer):
+
+class FuzzyficationLayerGaussian(FuzzyficationLayer):
     def __init__(self, num_inputs, num_mf, **kwargs):
-        super(FuzzyficationLayer_gaussian, self).__init__(num_inputs, num_mf, **kwargs)
+        super(FuzzyficationLayerGaussian, self).__init__(num_inputs, num_mf, **kwargs)
 
     def build(self, input_shape):
         self.parameters = self.add_weight(shape=(self.num_inputs*self.num_mf, 2), trainable=True, initializer='RandomNormal')
-        super(FuzzyficationLayer_gaussian, self).build(input_shape)
+        super(FuzzyficationLayerGaussian, self).build(input_shape)
 
+    @tf.function
     def membership_function(self, x, *args):
         return tf.math.exp((-(x - args[0])**2)/2*args[1]**2)
 
 
-class FuzzyficationLayer_bell(FuzzyficationLayer):
+class FuzzyficationLayerBell(FuzzyficationLayer):
     def __init__(self, num_inputs, num_mf, **kwargs):
-        super(FuzzyficationLayer_bell, self).__init__(num_inputs, num_mf, **kwargs)
+        super(FuzzyficationLayerBell, self).__init__(num_inputs, num_mf, **kwargs)
 
     def build(self, input_shape):
         self.parameters = self.add_weight(shape=(self.num_inputs*self.num_mf, 3), trainable=True, initializer='RandomNormal')
-        super(FuzzyficationLayer_gaussian, self).build(input_shape)
+        super(FuzzyficationLayerBell, self).build(input_shape)
 
+    @tf.function
     def membership_function(self, x, *args):
         return 1/(1 + tf.math.pow(tf.math.abs((x - args[2])/args[0]), 2*args[1]))
 
 
-class FuzzyficationLayer_triangular(FuzzyficationLayer):
+class FuzzyficationLayerTriangular(FuzzyficationLayer):
     def __init__(self, num_inputs, num_mf, **kwargs):
-        super(FuzzyficationLayer_triangular, self).__init__(num_inputs, num_mf, **kwargs)
+        super(FuzzyficationLayerTriangular, self).__init__(num_inputs, num_mf, **kwargs)
 
     def build(self, input_shape):
         self.parameters = self.add_weight(shape=(self.num_inputs*self.num_mf, 3), trainable=True, initializer='RandomNormal')
-        super(FuzzyficationLayer_gaussian, self).build(input_shape)
+        super(FuzzyficationLayerTriangular, self).build(input_shape)
 
+    @tf.function
     def membership_function(self, x, *args):
         return tf.mat.maximum(tf.math.minimum((x - args[0])/(args[1] - args[0]), (args[2] - x)/(args[2] - args[1])), 0)
 
@@ -156,12 +177,14 @@ class ConsequentRules(tf.keras.layers.Layer):
         the model by an actual dense layer native to keras
         '''
         super(ConsequentRules, self).build(input_dim)
+        #self.w = self.add_weight(shape=(self.num_inputs, self.output_dim), trainable=True, initializer='RandomNormal')
+        #self.bias = self.add_weight(shape=(1,self.output_dim), trainable=True, initializer='Zeros')
 
     def call(self, x):
         # Separate the two inputs of this layer
         original_inputs, cons_rules_inputs = x
         # Dense operations
-        #original_inputs = tf.matmul(original_inputs, self.parameters) + self.bias
+        #original_inputs = tf.matmul(original_inputs, self.w) + self.bias
         output = []
         for j in range(len(x[0])):
             o = []
@@ -169,6 +192,7 @@ class ConsequentRules(tf.keras.layers.Layer):
             for i in range(self.num_mf**self.num_inputs):
                 o.append(original_inputs[j][i]*cons_rules_inputs[j][i])
             output.append(o)
+        #output = tf.matmul(output, original_inputs)
         return output
 
 
